@@ -129,9 +129,7 @@ Screenshot2 (right) is Docked/Stats Mode that shows the following information:
 
 ### Prerequisites
 
-* <a href="https://python.org/" target="_blank">Python 3.x</a> (I developed using Python 3.8, but newer version should work as well)
-* <a href="https://visualstudio.microsoft.com/downloads/" target="_blank">Visual Studio Build Tools</a> - <b>I'm so sorry :( I don't like it either but it's a requirement to install/build matplotlib, you can probably uninstall it after you are done installing matplotlib, if anyone knows a workaround please let me know</b><br>
-I think you only need the following components:<br><a href="visual-studio-build.png" target="_blank"><img src="visual-studio-build.png" alt="visual-studio-build" width="400"/></a>
+* <a href="https://python.org/" target="_blank">Python 3.10</a>
 * matplotlib
   ```sh
   pip3 install matplotlib
