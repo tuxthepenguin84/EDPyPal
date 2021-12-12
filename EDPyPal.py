@@ -1,15 +1,18 @@
 # Modules
-import matplotlib.pyplot as plt
-import math
-import os
-import sys
 import argparse
-from pathlib import Path
 import locale
+import math
+import matplotlib.pyplot as plt
+import os
+from pathlib import Path
+import sys
+import time
 
 # Custom Modules
-from importEDData import * # Loads & Imports NavRoute.json and Journal log
-from processEDData import * # Processes data from NavRoute.json and Journal log into python dictionary
+from importEDDataJSON import * # Loads & Imports JSON function
+from importEDDataJournal import * # Loads & Imports Journal function
+from processEDDataJournal import * # Processes data from Journal*.log
+from processEDDataStatus import * # Processes data from Status JSON
 from importEDDBIOData import * # Imports station & system data from EDDB.io, place files (systems_populated.json & stations.json) in ED folder
 from findSystemInRoute import * # Find Current System In Route
 from closestSystemServices import * # Find Closest System Services
@@ -25,8 +28,15 @@ parser = argparse.ArgumentParser(description='EDPyPal')
 parser.add_argument("-m", "--mode", help="Manual mode override. | Example: ModeNaveRoute or ModeDocked ", nargs=1, default=None)
 parser.add_argument("-w", "--window", help="Window geometry location. | Example: +2552+0", nargs=1, default='+0+0')
 parser.add_argument("-l", "--locale", help="Set locale. | Example : en_US", nargs=1, default='en_US')
+parser.add_argument("-s", "--shutdown", help="Stop EDPyPal after ED shutdown.", default=False, action='store_true')
+parser.add_argument("-v", "--version", help="Show version info and quit.", default=False, action='store_true')
 args = parser.parse_args()
 print(args)
+
+# Version
+print('EDPyPal 0.1.2')
+if args.version == True:
+	quit()
 
 # Set Locale
 locale.setlocale(locale.LC_ALL, args.locale)
@@ -39,7 +49,7 @@ def on_press(event):
 	# Global Variables
 	global manualModeRequest
 	global navRoutePathModTime
-	global newJournalPathModTime
+	global journalPathModTime
 
 	# Initialize Variables
 	debugOnPress = 'KEY PRESS:'
@@ -66,7 +76,7 @@ def on_press(event):
 	# Auto Mode (default) switches views based on events in game (docking, undocking, FSD jump, etc.)
 	elif event.key == '0':
 		manualModeRequest = None
-		Path(newJournalPath).touch() # Quickly trigger Journal File Change
+		Path(journalPath).touch() # Quickly trigger Journal File Change
 		print(debugOnPress, 'Auto Mode Requested...')
 	# Manually switch to Docked Mode, view will not change unless switched back to Auto Mode or another manual mode
 	elif event.key == '1':
@@ -78,7 +88,7 @@ def on_press(event):
 		print (debugOnPress, 'Manual Mode Requested:', manualModeRequest)
 
 def pltFigure():
-	fig = plt.figure(num='EDPyPal') # Window TItle
+	fig = plt.figure(num='EDPyPal') # Window Title
 	fig.patch.set_facecolor('black') # Background Color
 	fig.set_figwidth(984/96) # Pixels / DPI = Inches
 	fig.set_figheight(1280/96) # https://www.infobyip.com/detectmonitordpi.php
@@ -98,7 +108,7 @@ def pltAxes():
 	#plt.get_current_fig_manager().window.state('zoomed') # Optionally open fullscreen on primary monitor
 	return ax
 
-def modeNavRoute(navRouteData, navRoutePathModTime, navRoutePath, newJournalData, newJournalPathModTime, newJournalPath):
+def modeNavRoute(processedJournalData, journalPathModTime, journalPath, processedStatusData, statusPathModTime, statusPath):
 	# Global Variables
 	global currentMode
 	global refreshRequested
@@ -118,33 +128,33 @@ def modeNavRoute(navRouteData, navRoutePathModTime, navRoutePath, newJournalData
 	###########################
 
 	# Find Current System
-	print(debugmodeNavRoute, 'Current Route:', navRouteData['Route'])
-	currentSystem = edData['starSystem']
+	print(debugmodeNavRoute, 'Current Route:', importedNavRouteData['Route'])
+	currentSystem = processedJournalData['starSystem']
 	print(debugmodeNavRoute, 'Current System:', currentSystem)
 
 	# Find Current System In Route
 	scoop = 'orange' # Color of Star Text that is Scoopable
 	nonScoop = 'red' # Color of Star Text that is nonScoopable
 	scoopMapping = {'O' : scoop, 'B' : scoop, 'A' : scoop, 'F' : scoop, 'G': scoop, 'K': scoop, 'M': scoop, 'S': nonScoop, 'TTS': nonScoop, 'Y': nonScoop, 'L': nonScoop, 'T': nonScoop, 'DA': nonScoop}
-	xStarPos, yStarPos, zStarPos, starClass, starSystem, routeLength, visibleRouteLength = findSystemInRoute(navRouteData, ax, currentSystem, scoop, nonScoop, scoopMapping)
+	xStarPos, yStarPos, zStarPos, starClass, starSystem, routeLength, visibleRouteLength = findSystemInRoute(importedNavRouteData, ax, currentSystem, scoop, nonScoop, scoopMapping)
 	print(debugmodeNavRoute, xStarPos, yStarPos, zStarPos, starClass, starSystem)
 	print(debugmodeNavRoute, 'Route Length - ', routeLength)
 	print(debugmodeNavRoute, 'Visible Route Length - ', visibleRouteLength)
 
 	# Find Closest System Services
-	stationServices, currentSystemID = closestSystemServices(edData['starSystem'], systemsPopData, stationsData)
-	print(debugmodeNavRoute, stationServices)
-	print(debugmodeNavRoute, currentSystem, currentSystemID)
+	stationServices, allStations = closestSystemServices(processedJournalData['starSystem'], systemsPopData, stationsData)
+	print(debugmodeNavRoute, 'Station Services:', stationServices)
+	print(debugmodeNavRoute, 'All Stations:', allStations, len(allStations))
 
 	# Find Next Scoopable Star
 	if starSystem != []:
 		nextScoopableStar, scoopableStarIndex = getNextScoopableStar(starClass, scoopMapping, scoop, starSystem)
-		print(debugmodeNavRoute, nextScoopableStar, scoopableStarIndex) ##### Feature number of jumps away?
+		print(debugmodeNavRoute, nextScoopableStar, scoopableStarIndex)
 	else:
 		nextScoopableStar = ''
 
 	# Calculates Fuel Levels & Capacity
-	fuelBar, fuelPercent, fuelBarColor, fuelLevel, fuelCapacity = getFuel(edData)
+	fuelBar, fuelPercent, fuelBarColor, fuelLevel, fuelCapacity = getFuel(processedJournalData, processedStatusData)
 	print(debugmodeNavRoute, fuelBar, fuelPercent, '%')
 
 	#############
@@ -174,46 +184,47 @@ def modeNavRoute(navRouteData, navRoutePathModTime, navRoutePath, newJournalData
 
 	# Services
 	if stationServices != None:
+		stationServiceStartingX = 0.01
+		stationServiceStartingY = 0.99
+		stationServiceInc = 0.02
 		if stationServices['has_refuel'] != None:
-			ax.text2D(0.01, 0.99, 'Refuel - ' + stationServices['has_refuel']['Name'] + ' ' + str(stationServices['has_refuel']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_refuel']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes)
+			ax.text2D(stationServiceStartingX, stationServiceStartingY, 'Refuel - ' + stationServices['has_refuel']['Name'] + ' ' + str(stationServices['has_refuel']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_refuel']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes); stationServiceStartingY -= stationServiceInc
 		if stationServices['has_repair'] != None:
-			ax.text2D(0.01, 0.97, 'Repair - ' + stationServices['has_repair']['Name'] + ' ' + str(stationServices['has_repair']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_repair']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes)
+			ax.text2D(stationServiceStartingX, stationServiceStartingY, 'Repair - ' + stationServices['has_repair']['Name'] + ' ' + str(stationServices['has_repair']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_repair']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes); stationServiceStartingY -= stationServiceInc
 		if stationServices['has_rearm'] != None:
-			ax.text2D(0.01, 0.95, 'Rearm - ' + stationServices['has_rearm']['Name'] + ' ' + str(stationServices['has_rearm']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_rearm']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes)
+			ax.text2D(stationServiceStartingX, stationServiceStartingY, 'Rearm - ' + stationServices['has_rearm']['Name'] + ' ' + str(stationServices['has_rearm']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_rearm']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes); stationServiceStartingY -= stationServiceInc
 		if stationServices['has_outfitting'] != None:
-			ax.text2D(0.01, 0.93, 'Outfitting - ' + stationServices['has_outfitting']['Name'] + ' ' + str(stationServices['has_outfitting']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_outfitting']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes)
+			ax.text2D(stationServiceStartingX, stationServiceStartingY, 'Outfitting - ' + stationServices['has_outfitting']['Name'] + ' ' + str(stationServices['has_outfitting']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_outfitting']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes); stationServiceStartingY -= stationServiceInc
 		if stationServices['has_shipyard'] != None:
-			ax.text2D(0.01, 0.91, 'Shipyard - ' + stationServices['has_shipyard']['Name'] + ' ' + str(stationServices['has_shipyard']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_shipyard']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes)
+			ax.text2D(stationServiceStartingX, stationServiceStartingY, 'Shipyard - ' + stationServices['has_shipyard']['Name'] + ' ' + str(stationServices['has_shipyard']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_shipyard']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes); stationServiceStartingY -= stationServiceInc
 		if stationServices['has_material_trader'] != None:
-			ax.text2D(0.01, 0.89, 'Material Trader - ' + stationServices['has_material_trader']['Name'] + ' ' + str(stationServices['has_material_trader']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_material_trader']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes)
+			ax.text2D(stationServiceStartingX, stationServiceStartingY, 'Material Trader - ' + stationServices['has_material_trader']['Name'] + ' ' + str(stationServices['has_material_trader']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_material_trader']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes); stationServiceStartingY -= stationServiceInc
 		if stationServices['has_technology_broker'] != None:
-			ax.text2D(0.01, 0.87, 'Tech Broker - ' + stationServices['has_technology_broker']['Name'] + ' ' + str(stationServices['has_technology_broker']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_technology_broker']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes)
-	
+			ax.text2D(stationServiceStartingX, stationServiceStartingY, 'Tech Broker - ' + stationServices['has_technology_broker']['Name'] + ' ' + str(stationServices['has_technology_broker']['Distance (LS)']) + ' LS' + ' (' + stationServices['has_technology_broker']['Landing Pad'] + ')', color='1', fontsize=ModeNavRouteStationServicesTextSize, horizontalalignment='left', transform=ax.transAxes); stationServiceStartingY -= stationServiceInc
+
 	# Current System
-	ax.text2D(0.01, 0.05, 'Current System', color='1', fontsize='small', horizontalalignment='left', transform=ax.transAxes)
-	ax.text2D(0.01, 0.03, edData['starSystem'], color='1', fontsize='large', fontweight='bold', horizontalalignment='left', transform=ax.transAxes)
+	ax.text2D(0.01, 0.07, 'Current System', color='1', fontsize='small', horizontalalignment='left', transform=ax.transAxes)
+	ax.text2D(0.01, 0.05, processedJournalData['starSystem'], color='1', fontsize='large', fontweight='bold', horizontalalignment='left', transform=ax.transAxes)
 
 	# Discovery Progress
-	fssdsProgress = round(edData.get('fssdsProgress', 0)*100)
-	if fssdsProgress == 0:
-		fssdsProgress = '-'
-	discovery = ax.text2D(0.01, 0.01, 'Discovery ' + str(fssdsProgress) + '%' + ' | ' + 'Bodies ' + str(edData.get('fssdsBodyCount', ' -')) + ' | ' + 'NonBodies ' + str(edData.get('fssdsNonBodyCount', ' -')), color='1', fontsize='medium', horizontalalignment='left', transform=ax.transAxes)
+	discovery = ax.text2D(0.01, 0.03, 'Discovery -% | Bodies - | NonBodies -', color='1', fontsize='medium', horizontalalignment='left', transform=ax.transAxes)
+	fleetcarriers = ax.text2D(0.01, 0.01, 'Fleet Carriers ' + str(len(list(dict.fromkeys(processedJournalData['fleetCarriers'])))), color='1', fontsize='medium', horizontalalignment='left', transform=ax.transAxes)
 
 	# Next System
 	if routeLength > 1:
-		ax.text2D(0.50, 0.05, 'Next System', color='1', fontsize='small', horizontalalignment='center', transform=ax.transAxes)
-		ax.text2D(0.50, 0.03, starSystem[1], color='1', fontsize='large', fontweight='bold', horizontalalignment='center', transform=ax.transAxes)
+		ax.text2D(0.50, 0.07, 'Next System', color='1', fontsize='small', horizontalalignment='center', transform=ax.transAxes)
+		ax.text2D(0.50, 0.05, starSystem[1], color='1', fontsize='large', fontweight='bold', horizontalalignment='center', transform=ax.transAxes)
 	
 	# Jumps to Destination
 	if routeLength == 2:
-		ax.text2D(0.50, 0.01, str(routeLength-1) + (' Jump to Destination'), color='1', fontsize='medium', horizontalalignment='center', transform=ax.transAxes)
+		ax.text2D(0.50, 0.03, str(routeLength-1) + (' Jump to Destination'), color='1', fontsize='medium', horizontalalignment='center', transform=ax.transAxes)
 	elif routeLength > 2:
-		ax.text2D(0.50, 0.01, str(routeLength-1) + (' Jumps to Destination'), color='1', fontsize='medium', horizontalalignment='center', transform=ax.transAxes)
+		ax.text2D(0.50, 0.03, str(routeLength-1) + (' Jumps to Destination'), color='1', fontsize='medium', horizontalalignment='center', transform=ax.transAxes)
 	
 	# Destination System
 	if routeLength > 1:
-		ax.text2D(0.99, 0.05, 'Destination System', color='1', fontsize='small', horizontalalignment='right', transform=ax.transAxes)
-		ax.text2D(0.99, 0.03, starSystem[-1], color='1', fontsize='large', fontweight='bold', horizontalalignment='right', transform=ax.transAxes)
+		ax.text2D(0.99, 0.07, 'Destination System', color='1', fontsize='small', horizontalalignment='right', transform=ax.transAxes)
+		ax.text2D(0.99, 0.05, starSystem[-1], color='1', fontsize='large', fontweight='bold', horizontalalignment='right', transform=ax.transAxes)
 	
 	# 3D Plot/Route
 	# Current/Next/Destination
@@ -260,14 +271,18 @@ def modeNavRoute(navRouteData, navRoutePathModTime, navRoutePath, newJournalData
 			while pauseRequested == True and navRoutePathModTime == os.stat(navRoutePath).st_mtime and refreshRequested == False:
 				plt.pause(.1)
 			
-			# Watch Journal Log for Changes
-			if newJournalPathModTime != os.stat(newJournalPath).st_mtime:
-				# Journal Log Changed
-				print(debugmodeNavRoute, 'Journal File Changed in ModeNavRoute...' + str(newJournalPathModTime) + ' | ' + str(os.stat(newJournalPath).st_mtime))
+			############################
+			## Watch for File Changes ##
+			############################
 
-				# Reimport ED Data & Reprocess
-				navRouteData, navRoutePathModTime, navRoutePath, newJournalData, newJournalPathModTime, newJournalPath = importEDData()
-				edDataUpdated, currentMode, minRequiredData = processEDData(newJournalData, args.locale)
+			# Journal*.log Changes
+			if journalPathModTime != os.stat(journalPath).st_mtime:
+				# Files Changed
+				print(debugmodeNavRoute, 'Journal File Changed in ModeNavRoute...' + str(journalPathModTime) + ' | ' + str(os.stat(journalPath).st_mtime))
+
+				# Reimport journalData & process
+				importedJournalData, journalPathModTime, journalPath = importEDDataJournal(edRootPath)
+				processedJournalData, currentMode, minRequiredData = processEDDataJournal(importedJournalData, args.locale, args.shutdown)
 
 				# Check if Mode Changed in Auto Mode
 				if currentMode != 'ModeNavRoute':
@@ -281,25 +296,42 @@ def modeNavRoute(navRouteData, navRoutePathModTime, navRoutePath, newJournalData
 				#############################################
 
 				# Check for New Star System
-				if currentSystem != edDataUpdated['starSystem']:
+				if currentSystem != processedJournalData['starSystem']:
 					# Restart modeNavRoute for New Star System
 					print(debugmodeNavRoute, 'Entering New Star System')
+					#discovery.set_text('Discovery - | Bodies - | NonBodies -')
 					restartModeNavRoute = True
 					break
 				
-				# Check for Updates to Fuel
-				fuelBar, fuelPercent, fuelBarColor, fuelLevel, fuelCapacity = getFuel(edDataUpdated)
-				fuel.set_text('Fuel ' + fuelLevel + '/' + fuelCapacity + ' T')
-				fuel2dBar.set_text(fuelBar + ' ' + fuelPercent + '%')
-				
 				# Check for Updates to Discovery Scanner
-				fssdsProgress = round(edDataUpdated.get('fssdsProgress', 0)*100)
-				if fssdsProgress == 0:
-					fssdsProgress = '-'
-				discovery.set_text('Discovery ' + str(fssdsProgress) + '%' + ' | ' + 'Bodies ' + str(edDataUpdated.get('fssdsBodyCount', ' -')) + ' | ' + 'NonBodies ' + str(edDataUpdated.get('fssdsNonBodyCount', ' -')))
+				if currentSystem == processedJournalData.get('fssdsSystemName', None):
+					fssdsProgress = round(processedJournalData.get('fssdsProgress', 0)*100)
+					if fssdsProgress == 0:
+						fssdsProgress = '-'
+					discovery.set_text('Discovery ' + str(fssdsProgress) + '%' + ' | ' + 'Bodies ' + str(processedJournalData.get('fssdsBodyCount', ' -')) + ' | ' + 'NonBodies ' + str(processedJournalData.get('fssdsNonBodyCount', ' -')))
+				fleetcarriers.set_text('Fleet Carriers ' + str(len(list(dict.fromkeys(processedJournalData['fleetCarriers'])))))
+			
+			# Status.json Changes
+			if statusPathModTime != os.stat(statusPath).st_mtime:
+				# Files Changed
+				print(debugmodeNavRoute, 'Status File Changed in ModeNavRoute...' + str(statusPathModTime) + ' | ' + str(os.stat(statusPath).st_mtime))
+
+				# Reimport statusData & process
+				importedStatusData, statusPathModTime, statusPath = importEDDataJSON('Status', edRootPath)
+				processedStatusData = processEDDataStatus(importedStatusData)
+
+				#############################################
+				## Check for ED Data Updates & Update Text ##
+				#############################################
+				
+				# Check for Updates to Fuel
+				fuelBar, fuelPercent, fuelBarColor, fuelLevel, fuelCapacity = getFuel(processedJournalData, processedStatusData)
+				fuel.set_text('Fuel ' + fuelLevel + '/' + fuelCapacity + ' T')
+				fuel2dBar.set_text(fuelBar + ' ' + fuelPercent)
+				fuel2dBar.set_color(fuelBarColor)
 
 			# Check if Mode Changed to Manual Mode
-			elif manualModeRequest != None and manualModeRequest != 'ModeNavRoute':
+			if manualModeRequest != None and manualModeRequest != 'ModeNavRoute':
 				# Mode Changed & Exit
 				print(debugmodeNavRoute, 'Manual Mode Request Received in ModeNavRoute...')
 				exitModeNavRoute = True
@@ -311,6 +343,11 @@ def modeNavRoute(navRouteData, navRoutePathModTime, navRoutePath, newJournalData
 				print(debugmodeNavRoute, 'NavRoute File Changed in ModeNavRoute...' + str(navRoutePathModTime) + ' | ' + str(os.stat(navRoutePath).st_mtime))
 				restartModeNavRoute = True
 				pauseRequested = False
+				break
+
+			# Check for different/newer Journal*.log file
+			newjournalPath = list(edRootPath.glob('Journal*.log'))[-1]
+			if newjournalPath != journalPath:
 				break
 			
 			# Set Angle & Draw
@@ -327,7 +364,7 @@ def modeNavRoute(navRouteData, navRoutePathModTime, navRoutePath, newJournalData
 		if restartModeNavRoute == True or exitModeNavRoute == True:
 			break
 
-def modeDocked(edData, newJournalPathModTime, newJournalPath):
+def modeDocked():
 	# Global Variables
 	global currentMode
 	global manualModeRequest
@@ -338,7 +375,7 @@ def modeDocked(edData, newJournalPathModTime, newJournalPath):
 
 	# Find All Ship Modules
 	if modulesData != None:
-		slot, item, itemClass, itemRating, bluePrint, level, expEffect = getShipModules(edData, modulesData)
+		slot, item, itemClass, itemRating, bluePrint, level, expEffect = getShipModules(processedJournalData, modulesData)
 	else:
 		slot = None
 		item = None
@@ -348,6 +385,10 @@ def modeDocked(edData, newJournalPathModTime, newJournalPath):
 		level = None
 		expEffect = None
 	print(debugmodeDocked, slot, item, itemClass, itemRating, bluePrint, level, expEffect)
+
+	# Find All System Stations
+	stationServices, allStations = closestSystemServices(processedJournalData['starSystem'], systemsPopData, stationsData)
+	print(debugmodeDocked, 'All Stations:', allStations, len(allStations))
 
 	#############
 	## 2D Text ##
@@ -359,61 +400,100 @@ def modeDocked(edData, newJournalPathModTime, newJournalPath):
 	# Star System Info
 	starSystemStartingX = 0.01
 	starSystemStartingY = 0.99
-	starSystemInc = 0.02
+	starSystemInc = 0.0175
 	starSystemHeaderFontSize = 'large'
 	starSystemFontSize = 'medium'
-	ax.text2D(starSystemStartingX, starSystemStartingY, ('Star System - ') + edData.get('starSystem', '-'), color='1', fontsize=starSystemHeaderFontSize, fontweight='bold', horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
-	ax.text2D(starSystemStartingX, starSystemStartingY, ('Allegiance - ') + edData.get('systemAllegiance', '-'), color='1', fontsize=starSystemFontSize, horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
-	ax.text2D(starSystemStartingX, starSystemStartingY, ('Economy - ') + edData.get('systemEconomy', '-'), color='1', fontsize=starSystemFontSize, horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
-	ax.text2D(starSystemStartingX, starSystemStartingY, ('Sec. Economy - ') + edData.get('systemSecondEconomy', '-'), color='1', fontsize=starSystemFontSize, horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
-	ax.text2D(starSystemStartingX, starSystemStartingY, ('Government - ') + edData.get('systemGovernment', '-'), color='1', fontsize=starSystemFontSize, horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
-	ax.text2D(starSystemStartingX, starSystemStartingY, edData.get('systemSecurity', '-'), color='1', fontsize=starSystemFontSize, horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
-	ax.text2D(starSystemStartingX, starSystemStartingY, ('Population - ') + str(edData.get('systemPopulation', '-')), color='1', fontsize=starSystemFontSize, horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
+	ax.text2D(starSystemStartingX, starSystemStartingY, ('Star System - ') + processedJournalData.get('starSystem', '-'), color='1', fontsize=starSystemHeaderFontSize, fontweight='bold', horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
+	ax.text2D(starSystemStartingX, starSystemStartingY, ('Allegiance - ') + processedJournalData.get('systemAllegiance', '-'), color='1', fontsize=starSystemFontSize, horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
+	ax.text2D(starSystemStartingX, starSystemStartingY, ('Economy - ') + processedJournalData.get('systemEconomy', '-'), color='1', fontsize=starSystemFontSize, horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
+	ax.text2D(starSystemStartingX, starSystemStartingY, ('Sec. Economy - ') + processedJournalData.get('systemSecondEconomy', '-'), color='1', fontsize=starSystemFontSize, horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
+	ax.text2D(starSystemStartingX, starSystemStartingY, ('Government - ') + processedJournalData.get('systemGovernment', '-'), color='1', fontsize=starSystemFontSize, horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
+	ax.text2D(starSystemStartingX, starSystemStartingY, processedJournalData.get('systemSecurity', '-'), color='1', fontsize=starSystemFontSize, horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
+	ax.text2D(starSystemStartingX, starSystemStartingY, ('Population - ') + str(processedJournalData.get('systemPopulation', '-')), color='1', fontsize=starSystemFontSize, horizontalalignment='left', transform=ax.transAxes); starSystemStartingY -= starSystemInc
 
 	# Station Info
 	stationInfoStartingX = 0.35
 	stationInfoStartingY = 0.99
-	stationInfoInc = 0.02
+	stationInfoInc = 0.0175
 	stationInfoHeaderFontSize = 'large'
 	stationInfoFontSize = 'medium'
-	ax.text2D(stationInfoStartingX, stationInfoStartingY, ('Station - ') + edData.get('stationName', '-'), color='1', fontsize=stationInfoHeaderFontSize, fontweight='bold', horizontalalignment='left', transform=ax.transAxes); stationInfoStartingY -= stationInfoInc
-	ax.text2D(stationInfoStartingX, stationInfoStartingY, ('Type - ') + edData.get('stationType', '-'), color='1', fontsize=stationInfoFontSize, horizontalalignment='left', transform=ax.transAxes); stationInfoStartingY -= stationInfoInc
-	ax.text2D(stationInfoStartingX, stationInfoStartingY, ('Economy - ') + edData.get('stationEconomy', '-'), color='1', fontsize=stationInfoFontSize, horizontalalignment='left', transform=ax.transAxes); stationInfoStartingY -= stationInfoInc
-	ax.text2D(stationInfoStartingX, stationInfoStartingY, ('Government - ') + edData.get('stationGovernment', '-'), color='1', fontsize=stationInfoFontSize, horizontalalignment='left', transform=ax.transAxes); stationInfoStartingY -= stationInfoInc
-	ax.text2D(stationInfoStartingX, stationInfoStartingY, ('Distance - ') + str(edData.get('stationDistFromStarLS', '-')) + ' LS', color='1', fontsize=stationInfoFontSize, horizontalalignment='left', transform=ax.transAxes); stationInfoStartingY -= stationInfoInc
-	ax.text2D(stationInfoStartingX, stationInfoStartingY, ('Landing Pads ') + edData.get('stationLandingPadsS', '-') + '|' + edData.get('stationLandingPadsM', '-') + '|' + edData.get('stationLandingPadsL', '-'), color='1', fontsize=stationInfoFontSize, horizontalalignment='left', transform=ax.transAxes); stationInfoStartingY -= stationInfoInc
+	ax.text2D(stationInfoStartingX, stationInfoStartingY, ('Station - ') + processedJournalData.get('stationName', '-'), color='1', fontsize=stationInfoHeaderFontSize, fontweight='bold', horizontalalignment='left', transform=ax.transAxes); stationInfoStartingY -= stationInfoInc
+	ax.text2D(stationInfoStartingX, stationInfoStartingY, ('Type - ') + processedJournalData.get('stationType', '-'), color='1', fontsize=stationInfoFontSize, horizontalalignment='left', transform=ax.transAxes); stationInfoStartingY -= stationInfoInc
+	ax.text2D(stationInfoStartingX, stationInfoStartingY, ('Economy - ') + processedJournalData.get('stationEconomy', '-'), color='1', fontsize=stationInfoFontSize, horizontalalignment='left', transform=ax.transAxes); stationInfoStartingY -= stationInfoInc
+	ax.text2D(stationInfoStartingX, stationInfoStartingY, ('Government - ') + processedJournalData.get('stationGovernment', '-'), color='1', fontsize=stationInfoFontSize, horizontalalignment='left', transform=ax.transAxes); stationInfoStartingY -= stationInfoInc
+	ax.text2D(stationInfoStartingX, stationInfoStartingY, ('Distance - ') + str(processedJournalData.get('stationDistFromStarLS', '-')) + ' LS', color='1', fontsize=stationInfoFontSize, horizontalalignment='left', transform=ax.transAxes); stationInfoStartingY -= stationInfoInc
+	ax.text2D(stationInfoStartingX, stationInfoStartingY, ('Landing Pads ') + processedJournalData.get('stationLandingPadsS', '-') + '|' + processedJournalData.get('stationLandingPadsM', '-') + '|' + processedJournalData.get('stationLandingPadsL', '-'), color='1', fontsize=stationInfoFontSize, horizontalalignment='left', transform=ax.transAxes); stationInfoStartingY -= stationInfoInc
 
 	# Ranks
 	ranksStartingX = 0.99
-	ranksStaryingY = 0.95
-	ranksInc = 0.02
-	rankFontSize = 'large'
-	ax.text2D(ranksStartingX, ranksStaryingY, ('Combat - ') + edData.get('rankCombat', '-'), color='1', fontsize=rankFontSize, horizontalalignment='right', transform=ax.transAxes); ranksStaryingY -= ranksInc
-	ax.text2D(ranksStartingX, ranksStaryingY, ('Trade - ') + edData.get('rankTrade', '-'), color='1', fontsize=rankFontSize, horizontalalignment='right', transform=ax.transAxes); ranksStaryingY -= ranksInc
-	ax.text2D(ranksStartingX, ranksStaryingY, ('Explore - ') + edData.get('rankExplore', '-'), color='1', fontsize=rankFontSize, horizontalalignment='right', transform=ax.transAxes); ranksStaryingY -= ranksInc
+	ranksStaryingY = 0.97
+	ranksInc = 0.0175
+	rankFontSize = 'medium'
+	ax.text2D(ranksStartingX, ranksStaryingY, ('Combat - ') + processedJournalData.get('rankCombat', '-'), color='1', fontsize=rankFontSize, horizontalalignment='right', transform=ax.transAxes); ranksStaryingY -= ranksInc
+	ax.text2D(ranksStartingX, ranksStaryingY, ('Trade - ') + processedJournalData.get('rankTrade', '-'), color='1', fontsize=rankFontSize, horizontalalignment='right', transform=ax.transAxes); ranksStaryingY -= ranksInc
+	ax.text2D(ranksStartingX, ranksStaryingY, ('Explore - ') + processedJournalData.get('rankExplore', '-'), color='1', fontsize=rankFontSize, horizontalalignment='right', transform=ax.transAxes); ranksStaryingY -= ranksInc
+	ax.text2D(ranksStartingX, ranksStaryingY, ('Soldier - ') + processedJournalData.get('rankSoldier', '-'), color='1', fontsize=rankFontSize, horizontalalignment='right', transform=ax.transAxes); ranksStaryingY -= ranksInc
+	ax.text2D(ranksStartingX, ranksStaryingY, ('Exobiologist - ') + processedJournalData.get('rankExobiologist', '-'), color='1', fontsize=rankFontSize, horizontalalignment='right', transform=ax.transAxes); ranksStaryingY -= ranksInc
+	ax.text2D(ranksStartingX, ranksStaryingY, ('Empire - ') + processedJournalData.get('rankEmpire', '-'), color='1', fontsize=rankFontSize, horizontalalignment='right', transform=ax.transAxes); ranksStaryingY -= ranksInc
+	ax.text2D(ranksStartingX, ranksStaryingY, ('Federation - ') + processedJournalData.get('rankFederation', '-'), color='1', fontsize=rankFontSize, horizontalalignment='right', transform=ax.transAxes); ranksStaryingY -= ranksInc
+	ax.text2D(ranksStartingX, ranksStaryingY, ('CQC - ') + processedJournalData.get('rankCQC', '-'), color='1', fontsize=rankFontSize, horizontalalignment='right', transform=ax.transAxes); ranksStaryingY -= ranksInc
+
+	# Show All Stations
+	allStationsStartingX = 0.20
+	allStationsStartingY = 0.60
+	allStationsInc = 0.02
+	allStationsFontSize = 'small'
+	allStationsCount = 0
+	allStationsMax = 30
+	allStationsMaxNameLen = 25
+	ax.text2D(allStationsStartingX, allStationsStartingY, processedJournalData.get('starSystem', '-'), color='1', fontsize='small', horizontalalignment='right', transform=ax.transAxes); allStationsStartingX += 0.013
+	ax.text2D(allStationsStartingX, allStationsStartingY-0.004, str(u"✧"), color='yellow', fontsize='xx-large', fontweight='bold', horizontalalignment='center', transform=ax.transAxes); allStationsStartingX += 0.013
+	for station in allStations:
+		if station[1]['Name'] == processedJournalData['stationName']:
+			if station[1]['Planetary'] == True:
+				ax.text2D(allStationsStartingX, allStationsStartingY, str(u"◯ | ") + ((station[1]['Name'][:allStationsMaxNameLen] + '..') if len(station[1]['Name']) > allStationsMaxNameLen+2 else station[1]['Name']) + '\n', color='orange', fontsize=allStationsFontSize, fontweight='bold', horizontalalignment='left', rotation=90, transform=ax.transAxes); allStationsStartingX += allStationsInc
+			elif station[1]['Planetary'] == False:
+				ax.text2D(allStationsStartingX, allStationsStartingY, str(u"◻  | ") + ((station[1]['Name'][:allStationsMaxNameLen] + '..') if len(station[1]['Name']) > allStationsMaxNameLen+2 else station[1]['Name']) + '\n', color='orange', fontsize=allStationsFontSize, fontweight='bold', horizontalalignment='left', rotation=90, transform=ax.transAxes); allStationsStartingX += allStationsInc
+			else:
+				pass
+		else:
+			if station[1]['Planetary'] == True:
+				ax.text2D(allStationsStartingX, allStationsStartingY, str(u"◯ | ") + ((station[1]['Name'][:allStationsMaxNameLen] + '..') if len(station[1]['Name']) > allStationsMaxNameLen+2 else station[1]['Name']) + '\n', color='grey', fontsize=allStationsFontSize, fontweight='bold', horizontalalignment='left', rotation=90, transform=ax.transAxes); allStationsStartingX += allStationsInc
+			elif station[1]['Planetary'] == False:
+				ax.text2D(allStationsStartingX, allStationsStartingY, str(u"◻  | ") + ((station[1]['Name'][:allStationsMaxNameLen] + '..') if len(station[1]['Name']) > allStationsMaxNameLen+2 else station[1]['Name']) + '\n', color='1', fontsize=allStationsFontSize, fontweight='bold', horizontalalignment='left', rotation=90, transform=ax.transAxes); allStationsStartingX += allStationsInc
+			else:
+				pass
+		allStationsCount+=1
+		if allStationsCount > allStationsMax:
+			ax.text2D(allStationsStartingX, allStationsStartingY, '...', color='grey', fontsize='medium', fontweight='bold', horizontalalignment='left', transform=ax.transAxes); allStationsStartingX += allStationsInc
+			break
 
 	# Credits & Commander Info
-	ax.text2D(0.99, 0.87, ('Credits ') + locale.format_string('%d', edData.get('credits', '-'), grouping=True), color='1', fontsize='large', horizontalalignment='right', transform=ax.transAxes)
-	ax.text2D(0.99, 0.85, ('CMDR ') + edData.get('cmdrName', '-'), color='1', fontsize='large', horizontalalignment='right', transform=ax.transAxes)
+	creditCommanderStartingX = 0.99
+	creditCommanderStaryingY = 0.53
+	creditCommanderInc = 0.0175
+	creditCommanderFontSize = 'large'
+	ax.text2D(creditCommanderStartingX, creditCommanderStaryingY, ('Credits ') + locale.format_string('%d', processedStatusData.get('credits', '-'), grouping=True), color='1', fontsize=creditCommanderFontSize, horizontalalignment='right', transform=ax.transAxes); creditCommanderStaryingY -= creditCommanderInc
+	ax.text2D(creditCommanderStartingX, creditCommanderStaryingY, ('CMDR ') + processedJournalData.get('cmdrName', '-'), color='1', fontsize=creditCommanderFontSize, horizontalalignment='right', transform=ax.transAxes); creditCommanderStaryingY -= creditCommanderInc
 
 	# Ship Info
 	shipInfoStartingX = 0.01
 	shipInfoStartingY = 0.53
-	shipInfoInc = 0.02
+	shipInfoInc = 0.0175
 	shipInfoTextSize = 'large'
-	ax.text2D(shipInfoStartingX, shipInfoStartingY, str(edData.get('ship', '-').title()) + ' ' + str(edData.get('shipName', '')) + ' ' + str(edData.get('shipIdent', '')), color='1', fontsize=shipInfoTextSize, fontweight='bold', horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
-	ax.text2D(shipInfoStartingX, shipInfoStartingY, ('  Value ') + edData.get('shipValue', '-'), color='lime', fontsize='medium', horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
-	ax.text2D(shipInfoStartingX, shipInfoStartingY, ('  Rebuy ') + edData.get('rebuy', '-'), color='lime', fontsize='medium', horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
-	ax.text2D(shipInfoStartingX, shipInfoStartingY, ('Max Jump Range - ') + edData.get('maxJumpRange', '-') + ' LY', color='1', fontsize=shipInfoTextSize, horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
-	ax.text2D(shipInfoStartingX, shipInfoStartingY, ('Fuel - ') + str(edData.get('fuelLevel', '-')) + ' / ' + str(edData.get('fuelCapacity', '-')) + ' T', color='1', fontsize=shipInfoTextSize, horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
-	ax.text2D(shipInfoStartingX, shipInfoStartingY, ('Unladen Mass - ') + str(edData.get('shipUnladenMass', '-')) + ' T', color='1', fontsize=shipInfoTextSize, horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
-	ax.text2D(shipInfoStartingX, shipInfoStartingY, ('Cargo - ') + edData.get('currentCargo', '-') + ' / ' + edData.get('cargoCapacity', '-'), color='1', fontsize=shipInfoTextSize, horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
+	ax.text2D(shipInfoStartingX, shipInfoStartingY, str(processedJournalData.get('ship', '-').title()) + ' ' + str(processedJournalData.get('shipName', '')) + ' ' + str(processedJournalData.get('shipIdent', '')), color='1', fontsize=shipInfoTextSize, fontweight='bold', horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
+	ax.text2D(shipInfoStartingX, shipInfoStartingY, ('  Value ') + processedJournalData.get('shipValue', '-'), color='lime', fontsize='medium', horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
+	ax.text2D(shipInfoStartingX, shipInfoStartingY, ('  Rebuy ') + processedJournalData.get('rebuy', '-'), color='lime', fontsize='medium', horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
+	ax.text2D(shipInfoStartingX, shipInfoStartingY, ('Max Jump Range - ') + processedJournalData.get('maxJumpRange', '-') + ' LY', color='1', fontsize=shipInfoTextSize, horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
+	ax.text2D(shipInfoStartingX, shipInfoStartingY, ('Fuel - ') + str(processedStatusData.get('fuelLevel', '-')) + ' / ' + str(processedJournalData.get('fuelCapacity', '-')) + ' T', color='1', fontsize=shipInfoTextSize, horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
+	ax.text2D(shipInfoStartingX, shipInfoStartingY, ('Unladen Mass - ') + str(processedJournalData.get('shipUnladenMass', '-')) + ' T', color='1', fontsize=shipInfoTextSize, horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
+	ax.text2D(shipInfoStartingX, shipInfoStartingY, ('Cargo - ') + processedJournalData.get('currentCargo', '-') + ' / ' + processedJournalData.get('cargoCapacity', '-'), color='1', fontsize=shipInfoTextSize, horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
 	#shipInfoStartingY -= shipInfoInc
 
 	# Cargo/Inventory
 	#ax.text2D(shipInfoStartingX, shipInfoStartingY, ('[Inventory]'), color='1', fontsize='medium', horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
-	#ax.text2D(shipInfoStartingX, shipInfoStartingY, str(edData.get('currentInventory', '')), color='1', fontsize='medium', horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
-	#print(edData['currentInventory'])
+	#ax.text2D(shipInfoStartingX, shipInfoStartingY, str(processedJournalData.get('currentInventory', '')), color='1', fontsize='medium', horizontalalignment='left', transform=ax.transAxes); shipInfoStartingY -= shipInfoInc
+	#print(processedJournalData['currentInventory'])
 	
 	# Module Info
 	moduleBaseX = 0.01
@@ -456,38 +536,56 @@ def modeDocked(edData, newJournalPathModTime, newJournalPath):
 	## Draw Docked Info ##
 	######################
 	while True:
-		# Watch Journal Log for Changes
-		if newJournalPathModTime != os.stat(newJournalPath).st_mtime:
-			# Journal Log Changed
-			print(debugmodeDocked, 'Journal File Changed in ModeDocked...' + str(newJournalPathModTime) + ' | ' + str(os.stat(newJournalPath).st_mtime))
+		# Watch for File Changes
+		if journalPathModTime != os.stat(journalPath).st_mtime or statusPathModTime != os.stat(statusPath).st_mtime:
+			# Files Changed
+			print(debugmodeDocked, 'Files Changed in ModeDocked...')
 			break
+		
 		# Check if Mode Changed to Manual Mode
-		elif manualModeRequest != None and manualModeRequest != 'ModeDocked':
+		if manualModeRequest != None and manualModeRequest != 'ModeDocked':
 			# Mode Changed Exit
 			print(debugmodeDocked, 'Manual Mode Request Received in ModeDocked...')
 			break
+
+		# Check for different/newer Journal*.log file
+		newjournalPath = list(edRootPath.glob('Journal*.log'))[-1]
+		if newjournalPath != journalPath:
+			break
+
 		# Draw
 		plt.draw()
 		plt.pause(.5)
 
 fig = pltFigure()
 
-# Import EDDB.io data into python dictionary
-systemsPopData, stationsData, modulesData = importEDDBIOData()
-
-manualModeRequest = args.mode # Start in Auto Mode by default
+# Start in Auto Mode by default
+manualModeRequest = args.mode
 
 # Initialize Variables
 debugMain = 'MAIN:'
 
+# Elite Dangerous Path
+edRootPath = Path(os.environ['USERPROFILE'] + '/Saved Games/Frontier Developments/Elite Dangerous/')
+
+# Import EDDB.io data
+systemsPopData = importEDDBIOData('systems_populated.json', edRootPath)
+stationsData = importEDDBIOData('stations.json', edRootPath)
+modulesData = importEDDBIOData('modules.json', edRootPath)
+
 # Main Loop
 while True:
-	# Import ED Data
-	requiredData = False
-	while requiredData == False:
+	# Import Data
+	minRequiredData = False
+	while minRequiredData == False:
 		# Wait For All Required Data
-		navRouteData, navRoutePathModTime, navRoutePath, newJournalData, newJournalPathModTime, newJournalPath = importEDData()
-		edData, currentMode, requiredData = processEDData(newJournalData, args.locale)
+		importedJournalData, journalPathModTime, journalPath = importEDDataJournal(edRootPath) # Read Journal*.log
+		importedStatusData, statusPathModTime, statusPath = importEDDataJSON('Status', edRootPath) # Read Status.json
+		importedNavRouteData, navRoutePathModTime, navRoutePath = importEDDataJSON('NavRoute', edRootPath) # Read NavRoute.json
+		processedStatusData = processEDDataStatus(importedStatusData) # Process Status.json
+		processedJournalData, currentMode, minRequiredData = processEDDataJournal(importedJournalData, args.locale, args.shutdown) # Process Journal*.log
+		if minRequiredData == False:
+			time.sleep(1)
 
 	# Check Auto/Manual Mode
 	if manualModeRequest == None:
@@ -501,9 +599,10 @@ while True:
 	ax = pltAxes()
 	
 	# Switch Mode
-	if currentMode == 'ModeNavRoute' or currentMode == 'Unknown':
-		modeNavRoute(navRouteData, navRoutePathModTime, navRoutePath, newJournalData, newJournalPathModTime, newJournalPath)
+	if currentMode == 'ModeNavRoute':
+		modeNavRoute(processedJournalData, journalPathModTime, journalPath, processedStatusData, statusPathModTime, statusPath)
 	elif currentMode == 'ModeDocked':
-		modeDocked(edData, newJournalPathModTime, newJournalPath)
+		modeDocked()
 	else:
-		pass
+		print('UNKNOWN: Unknown mode requested')
+		quit()

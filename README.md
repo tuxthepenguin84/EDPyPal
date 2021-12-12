@@ -53,12 +53,7 @@
 <!-- TABLE OF CONTENTS -->
 <summary>Table of Contents</summary>
 <ol>
-<li>
-  <a href="#about">About</a>
-  <ul>
-    <li><a href="#built-with">Built With</a></li>
-  </ul>
-</li>
+<li><a href="#about">About</a></li>
 <li>
   <a href="#getting-started">Getting Started</a>
   <ul>
@@ -79,46 +74,52 @@
 <!-- ABOUT THE PROJECT -->
 ## About
 
-EDPyPal is an app I wrote that reads in game data, in real time, in <a href="https://store.steampowered.com/app/359320/Elite_Dangerous/" target="_blank">Elite Dangerous</a> and then shows relevant information.
+EDPyPal is an app that reads <a href="https://store.steampowered.com/app/359320/Elite_Dangerous/" target="_blank">Elite Dangerous</a> game data, in real time, and then shows relevant information.
 
-* Find the closest repair station in the system
+* Find the closest repair,refuel,restock,etc. station in the system
 * What stars are scoopable in your route
 * How many jumps left in your route
 * Quickly see what modules you have attached as well as if they are engineered
+* View station and system information quickly
 * And more...
 
-EDPyPal is written in Python and uses matplotlib to draw 3D plots to visualize Elite Dangerous game data. It reads JSON data from C:\Users\userID\Saved Games\Frontier Developments\Elite Dangerous folder and parses it in real time. <b>Any changes are instantly updated and it can auto switch between different views/modes based on if your ship is docked or not. Launch it and let it do it's thing!</b>
+EDPyPal is written in Python and uses matplotlib to draw 3D plots to visualize Elite Dangerous game data. It reads JSON data from C:\Users\userID\Saved Games\Frontier Developments\Elite Dangerous\ folder and parses it in real time. Any changes are instantly updated and it can auto switch between different views/modes based on if your ship is docked or not. Launch it and let it do it's thing!
 
 EDPyPal is made to run on another monitor in fullscreen.
-
-* <a href="https://youtu.be/RadoPQeKJJ0">Youtube Demo</a>
-* Screenshots
-
-<a href="screenshot1.png" target="_blank"><img src="screenshot1.png" alt="screenshot1" width="400"/></a>
-<a href="screenshot2.png" target="_blank"><img src="screenshot2.png" alt="screenshot2" width="400"/></a>
-
-<!-- <p align="right">(<a href="#top">back to top</a>)</p> -->
-
-Screenshot1 (left) is Nav Mode that shows the following information:
-* Top left is closest stations for Refuel, Repair, Rearm, Outfitting, Shipyard, Material Trader (ignores Fleetcarriers and planet landings)
-* Top middle is fuel level as well as next fuel star
-* Top right is current mode (Nav or Docked/Stats)
-* Center middle is is a rotating 3D plot of what you currently have routed in your navigation computer. Current system, next system, and destination system are labeled as well as a number of systems not shown if you have a long route planned (indicated by ----). The 3D plot also shows star types (orange is scoopble, red is non-scoopable) and distance in LY between stars. Plots with dashed lines at the end indicate there are more jumps not shown.
-* Bottom left is current system information
-* Bottom middle is next system and jumps remaining to destination
-* Bottom right is destination system
-
-Screenshot2 (right) is Docked/Stats Mode that shows the following information:
-* Top left is current system information
-* Top middle is station information
-* Top right is rank, credits, commander
-* Middle left is ship info/stats, fuel (tons), cargo (tons), jump range
-* Bottom is module information, orange colored items indicated engineered items and their level
 
 ### Built With
 
 * [Python](https://python.org/)
 * [Matplotlib](https://matplotlib.org/)
+
+### Youtube Demo
+* <a href="https://youtu.be/RadoPQeKJJ0">Video of EDPyPal in action</a>
+
+<!-- <p align="right">(<a href="#top">back to top</a>)</p> -->
+
+### Nav Mode
+<a href="screenshot1.png" target="_blank"><img src="screenshot1.png" alt="screenshot1" width="300"/></a>
+
+Nav Mode shows the following information:
+* Top left is closest stations for Refuel, Repair, Rearm, Outfitting, Shipyard, Material Trader (ignores Fleetcarriers and planet landings)
+* Top middle is fuel level as well as next fuel star. Also color coded to indicate level.
+* Top right is current mode (Nav or Docked/Stats)
+* Center middle is is a rotating 3D plot of what you currently have routed in your navigation computer. Current system, next system, and destination system are labeled as well as a number of systems not shown if you have a long route planned (indicated by ----). The 3D plot also shows star types (orange is scoopble, red is non-scoopable) and distance in LY between stars. Plots with dashed lines at the end indicate there are more jumps not shown.
+* Bottom left is current system as well as body, non-body, and fleet carrier count
+* Bottom middle is next system and jumps remaining to destination
+* Bottom right is destination system
+
+### Docked/Stats Mode
+<a href="screenshot2.png" target="_blank"><img src="screenshot2.png" alt="screenshot2" width="300"/></a>
+
+Docked/Stats Mode that shows the following information:
+* Top left is current system information
+* Top middle is station information
+* Top right is various ranks
+* Center is a system view showing planetary and station landings
+* Middle left is ship info/stats, fuel (tons), cargo (tons), jump range
+* Middle right is commander and credits
+* Bottom is module information, orange colored items indicate engineered items and their level
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -129,8 +130,9 @@ Screenshot2 (right) is Docked/Stats Mode that shows the following information:
 
 ### Prerequisites
 
-* <a href="https://python.org/" target="_blank">Python 3.10</a>
-* matplotlib
+* <a href="https://store.steampowered.com/app/359320/Elite_Dangerous/" target="_blank">Elite Dangerous: Odyssey</a>
+* <a href="https://python.org/" target="_blank">Python 3 (latest)</a>
+* <a href="https://matplotlib.org/stable/users/installing/index.html" target="_blank">matplotlib (latest)</a>
   ```sh
   pip3 install matplotlib
   ```
@@ -159,22 +161,33 @@ Screenshot2 (right) is Docked/Stats Mode that shows the following information:
 
 Once you have all the pre-reqs installed and the repository cloned you can run EDPyPal.
 
-* You must be in game in Elite Dangerous before you launch EDPyPal! Otherwise it shoes your previous game session which will not update.
-* Elite Dangerous needs to be run in <b>Borderless</b> mode in your Elite Dangerous display settings
+* You must be in game in Elite Dangerous before you launch EDPyPal, otherwise it shoes your previous game session which will not update.
+* Elite Dangerous needs to be run in <b>Borderless</b> mode in your Elite Dangerous display settings, otherwise you will get bad flickering from the EDPyPal app.
 * <b>Review [open issues](https://github.com/tuxthepenguin84/edpypal/issues), you will almost certainly run into a bug or two</b>
 
-Launch EDPyPal
+### Launch EDPyPal
 ```sh
-python3 path\to\EDPyPal.py
+python path\to\EDPyPal.py
+```
+
+### Key Bindings
+```sh
+(1) - Switch to Docked/Stats Mode
+(2) - Switch to Nav Mode
+(0) - Switch to Auto Mode [default] (Automatically switches mode based on in game events)
+(p) - Pause/unpause rotating map in NavMode, then you can use your mouse to manually rotate the map.
+(r) - Refresh rotating map in NavMode
+(f) - Full screen toggle
+(Esc) - Exit (gracefully) EDPyPal
 ```
 
 <b>To quite EDPyPal, make sure EDPyPal has focus and press the Escape key</b>
 
 ### Help
 
-There are a couple optional flags you can run to force specific modes, local, window settings, etc. You can view those with the <b>-h</b> flag.
+There are a couple optional flags you can run to force specific modes, window, locale, shutdown, and version settings. You can view those with the <b>-h</b> flag.
 ```sh
-python3 path\to\EDPyPal.py -h
+python path\to\EDPyPal.py -h
 ```
 
 

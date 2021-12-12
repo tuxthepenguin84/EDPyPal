@@ -7,6 +7,7 @@ def closestSystemServices(selectedSystem, systemsPopData, stationsData):
                 currentSystemID = systemPopData['id']
 
         stationServices = {'has_refuel':None, 'has_repair':None, 'has_rearm':None, 'has_outfitting':None, 'has_shipyard':None, 'has_material_trader':None, 'has_technology_broker':None}
+        allStations = {}
 
         for stationData in stationsData:
             for stationService in stationServices:
@@ -14,6 +15,7 @@ def closestSystemServices(selectedSystem, systemsPopData, stationsData):
                 stationData[stationService] == True and \
                 stationData['type'] != 'Fleet Carrier' and \
                 stationData['is_planetary'] == False and \
+                stationData['has_docking'] == True and \
                 (stationServices[stationService] == None or stationData['distance_to_star'] < stationServices[stationService]['Distance (LS)']):
                     stationServices[stationService] = {\
                         'Name':stationData['name'], \
@@ -26,9 +28,16 @@ def closestSystemServices(selectedSystem, systemsPopData, stationsData):
                         'Shipyard':'Shipyard' if stationData['has_shipyard'] else '', \
                         'Material Trader':'Material Trader' if stationData['has_material_trader'] else '', \
                         'Tech Broker':'Tech Broker' if stationData['has_technology_broker'] else ''}
-        return stationServices, currentSystemID
+                if stationData['system_id'] == currentSystemID and \
+                stationData['type'] != 'Fleet Carrier' and \
+                stationData['has_docking'] == True:
+                    allStations[stationData['id']] = {\
+                        'Name':stationData['name'], \
+                        'Distance (LS)':stationData['distance_to_star'], \
+                        'Planetary':stationData['is_planetary'],}
+        allStations = sorted(allStations.items(), key = lambda x: x[1]['Distance (LS)']) # Sort stations by Distance (LS)
+        return stationServices, allStations
     else:
         stationServices = None
-        currentSystemID = None
-        systemPopData = None
-        return stationServices, currentSystemID
+        allStations = None
+        return stationServices, allStations

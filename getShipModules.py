@@ -1,5 +1,5 @@
 # Find All Ship Modules
-def getShipModules(edData, modulesData):
+def getShipModules(processedJournalData, modulesData):
 	# Initialize Variables
     slot = []
     item = []
@@ -8,7 +8,7 @@ def getShipModules(edData, modulesData):
     bluePrint = []
     level = []
     expEffect = []
-    for module in edData['modules']:
+    for module in processedJournalData['modules']:
         slot.append(module['Slot'])
         itemFound = False
         for eddbModule in modulesData:
